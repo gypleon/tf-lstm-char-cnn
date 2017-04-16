@@ -101,7 +101,9 @@ def tdnn(input_, kernels, kernel_features, scope='TDNN'):
             layers.append(tf.squeeze(pool, [1, 2]))
 
         if len(kernels) > 1:
-            output = tf.concat(1, layers)
+            # LEON(TODO): concat()
+            # output = tf.concat(1, layers)
+            output = tf.concat(layers, 1)
         else:
             output = layers[0]
 
@@ -138,6 +140,7 @@ def inference_graph(char_vocab_size, word_vocab_size,
         # [batch_size x max_word_length, num_unroll_steps, char_embed_size]
         input_embedded = tf.nn.embedding_lookup(char_embedding, input_)
 
+        # LEON: [batch_size x num_unroll_steps, max_word_length, char_embed_size] ?
         input_embedded = tf.reshape(input_embedded, [-1, max_word_length, char_embed_size])
 
     ''' Second, apply convolutions '''
@@ -150,18 +153,20 @@ def inference_graph(char_vocab_size, word_vocab_size,
 
     ''' Finally, do LSTM '''
     with tf.variable_scope('LSTM'):
-        cell = tf.nn.rnn_cell.BasicLSTMCell(rnn_size, state_is_tuple=True, forget_bias=0.0)
+        cell = tf.contrib.rnn.BasicLSTMCell(rnn_size, state_is_tuple=True, forget_bias=0.0)
         if dropout > 0.0:
-            cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=1.-dropout)
+            cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=1.-dropout)
         if num_rnn_layers > 1:
-            cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_rnn_layers, state_is_tuple=True)
+            cell = tf.contrib.rnn.MultiRNNCell([cell] * num_rnn_layers, state_is_tuple=True)
 
         initial_rnn_state = cell.zero_state(batch_size, dtype=tf.float32)
 
         input_cnn = tf.reshape(input_cnn, [batch_size, num_unroll_steps, -1])
-        input_cnn2 = [tf.squeeze(x, [1]) for x in tf.split(1, num_unroll_steps, input_cnn)]
+        # TODO(LEON): split(value, num_or_size_splits, axis=0, num=None, name='split')
+        # input_cnn2 = [tf.squeeze(x, [1]) for x in tf.split(1, num_unroll_steps, input_cnn)]
+        input_cnn2 = [tf.squeeze(x, [1]) for x in tf.split(input_cnn, num_unroll_steps, 1)]
 
-        outputs, final_rnn_state = tf.nn.rnn(cell, input_cnn2,
+        outputs, final_rnn_state = tf.contrib.rnn.static_rnn(cell, input_cnn2,
                                          initial_state=initial_rnn_state, dtype=tf.float32)
 
         # linear projection onto output (word) vocab
@@ -188,9 +193,13 @@ def loss_graph(logits, batch_size, num_unroll_steps):
 
     with tf.variable_scope('Loss'):
         targets = tf.placeholder(tf.int64, [batch_size, num_unroll_steps], name='targets')
-        target_list = [tf.squeeze(x, [1]) for x in tf.split(1, num_unroll_steps, targets)]
+        # TODO(LEON): split(value, num_or_size_splits, axis=0, num=None, name='split')
+        # target_list = [tf.squeeze(x, [1]) for x in tf.split(1, num_unroll_steps, targets)]
+        target_list = [tf.squeeze(x, [1]) for x in tf.split(targets, num_unroll_steps, 1)]
 
-        loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, target_list), name='loss')
+        # TODO(LEON): sparse_softmax_cross_entropy_with_logits(_sentinel=None, labels=None, logits=None, name=None)
+        # loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, target_list), name='loss')
+        loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=target_list, logits=logits), name='loss')
 
     return adict(
         targets=targets,
